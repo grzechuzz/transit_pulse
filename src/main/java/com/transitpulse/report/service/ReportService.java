@@ -6,6 +6,7 @@ import com.transitpulse.report.dto.ReportResponse;
 import com.transitpulse.report.entity.Report;
 import com.transitpulse.report.entity.ReportConfirmation;
 import com.transitpulse.report.entity.ReportStatus;
+import com.transitpulse.report.event.ReportVerifiedEvent;
 import com.transitpulse.report.mapper.ReportMapper;
 import com.transitpulse.report.repository.ReportConfirmationRepository;
 import com.transitpulse.report.repository.ReportRepository;
@@ -15,6 +16,7 @@ import com.transitpulse.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,7 @@ public class ReportService {
     private final ReportConfirmationRepository reportConfirmationRepository;
     private final UserRepository userRepository;
     private final ReportMapper reportMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public ReportResponse create(AuthenticatedUser currentUser, CreateReportRequest request) {
@@ -39,11 +42,12 @@ public class ReportService {
         Report report = reportMapper.toEntity(request, author);
 
         if (isPrivileged(author)) {
-            report.setStatus(ReportStatus.VERIFIED);
-            report.setVerifiedAt(Instant.now());
+            markAsVerified(report);
         }
 
-        return reportMapper.toResponse(reportRepository.save(report));
+        Report savedReport = reportRepository.save(report);
+        publishVerifiedEventIfVerified(savedReport);
+        return reportMapper.toResponse(savedReport);
     }
 
     @Transactional(readOnly = true)
@@ -73,8 +77,8 @@ public class ReportService {
 
         long confirmationCount = reportConfirmationRepository.countByReportId(report.getId());
         if (confirmationCount >= REQUIRED_CONFIRMATIONS) {
-            report.setStatus(ReportStatus.VERIFIED);
-            report.setVerifiedAt(Instant.now());
+            markAsVerified(report);
+            publishVerifiedEventIfVerified(report);
         }
 
         return reportMapper.toResponse(report);
@@ -96,5 +100,29 @@ public class ReportService {
 
     private boolean isPrivileged(User user) {
         return user.getRole() == Role.MODERATOR || user.getRole() == Role.ADMIN;
+    }
+
+    private void markAsVerified(Report report) {
+        if (report.getStatus() == ReportStatus.VERIFIED) {
+            return;
+        }
+
+        report.setStatus(ReportStatus.VERIFIED);
+        report.setVerifiedAt(Instant.now());
+    }
+
+    private void publishVerifiedEventIfVerified(Report report) {
+        if (report.getStatus() != ReportStatus.VERIFIED) {
+            return;
+        }
+
+        eventPublisher.publishEvent(new ReportVerifiedEvent(
+                report.getId(),
+                report.getAuthor().getId(),
+                report.getType(),
+                report.getLineNumber(),
+                report.getStopName(),
+                report.getVerifiedAt()
+        ));
     }
 }
