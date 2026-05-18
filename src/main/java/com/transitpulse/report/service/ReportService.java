@@ -4,8 +4,10 @@ import com.transitpulse.auth.security.AuthenticatedUser;
 import com.transitpulse.report.dto.CreateReportRequest;
 import com.transitpulse.report.dto.ReportResponse;
 import com.transitpulse.report.entity.Report;
+import com.transitpulse.report.entity.ReportConfirmation;
 import com.transitpulse.report.entity.ReportStatus;
 import com.transitpulse.report.mapper.ReportMapper;
+import com.transitpulse.report.repository.ReportConfirmationRepository;
 import com.transitpulse.report.repository.ReportRepository;
 import com.transitpulse.user.entity.Role;
 import com.transitpulse.user.entity.User;
@@ -22,7 +24,10 @@ import org.springframework.web.server.ResponseStatusException;
 @RequiredArgsConstructor
 public class ReportService {
 
+    private static final int REQUIRED_CONFIRMATIONS = 3;
+
     private final ReportRepository reportRepository;
+    private final ReportConfirmationRepository reportConfirmationRepository;
     private final UserRepository userRepository;
     private final ReportMapper reportMapper;
 
@@ -53,6 +58,40 @@ public class ReportService {
         return reportRepository.findById(id)
                 .map(reportMapper::toResponse)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+    }
+
+    @Transactional
+    public ReportResponse confirm(Long reportId, AuthenticatedUser currentUser) {
+        Report report = reportRepository.findById(reportId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+        User user = userRepository.findById(currentUser.id())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current user not found"));
+
+        validateConfirmation(report, user);
+
+        reportConfirmationRepository.save(new ReportConfirmation(report, user));
+
+        long confirmationCount = reportConfirmationRepository.countByReportId(report.getId());
+        if (confirmationCount >= REQUIRED_CONFIRMATIONS) {
+            report.setStatus(ReportStatus.VERIFIED);
+            report.setVerifiedAt(Instant.now());
+        }
+
+        return reportMapper.toResponse(report);
+    }
+
+    private void validateConfirmation(Report report, User user) {
+        if (report.getStatus() != ReportStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pending reports can be confirmed");
+        }
+
+        if (report.getAuthor().getId().equals(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Report author cannot confirm own report");
+        }
+
+        if (reportConfirmationRepository.existsByReportIdAndUserId(report.getId(), user.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Report already confirmed by this user");
+        }
     }
 
     private boolean isPrivileged(User user) {

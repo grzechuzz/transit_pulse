@@ -39,4 +39,12 @@ public class ReportController {
     public ReportResponse getById(@PathVariable Long id) {
         return reportService.getById(id);
     }
+
+    @PostMapping("/{id}/confirm")
+    public ReportResponse confirm(
+            @PathVariable Long id,
+            @AuthenticationPrincipal AuthenticatedUser currentUser
+    ) {
+        return reportService.confirm(id, currentUser);
+    }
 }
