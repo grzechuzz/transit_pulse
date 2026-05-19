@@ -3,21 +3,21 @@ package com.transitpulse.notification.service;
 import com.transitpulse.notification.entity.Notification;
 import com.transitpulse.notification.dto.NotificationResponse;
 import com.transitpulse.notification.dto.UnreadCountResponse;
+import com.transitpulse.notification.exception.NotificationNotFoundException;
 import com.transitpulse.notification.mapper.NotificationMapper;
 import com.transitpulse.notification.repository.NotificationRepository;
 import com.transitpulse.auth.security.AuthenticatedUser;
 import com.transitpulse.report.entity.Report;
 import com.transitpulse.report.event.ReportVerifiedEvent;
+import com.transitpulse.report.exception.ReportNotFoundException;
 import com.transitpulse.report.repository.ReportRepository;
 import com.transitpulse.user.entity.User;
 import com.transitpulse.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -48,7 +48,7 @@ public class NotificationService {
     @Transactional
     public NotificationResponse markAsRead(Long notificationId, AuthenticatedUser currentUser) {
         Notification notification = notificationRepository.findByIdAndRecipientId(notificationId, currentUser.id())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Notification not found"));
+                .orElseThrow(NotificationNotFoundException::new);
 
         notification.markAsRead(Instant.now());
 
@@ -65,7 +65,7 @@ public class NotificationService {
     @Transactional
     public void createForVerifiedReport(ReportVerifiedEvent event) {
         Report report = reportRepository.findById(event.reportId())
-                .orElseThrow(() -> new IllegalStateException("Verified report not found: " + event.reportId()));
+                .orElseThrow(ReportNotFoundException::new);
         List<User> users = userRepository.findAll();
 
         List<Notification> notifications = users.stream()
