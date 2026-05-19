@@ -47,20 +47,20 @@ public class ReportService {
 
         Report savedReport = reportRepository.save(report);
         publishVerifiedEventIfVerified(savedReport);
-        return reportMapper.toResponse(savedReport);
+        return toResponse(savedReport);
     }
 
     @Transactional(readOnly = true)
     public List<ReportResponse> getAll() {
         return reportRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(reportMapper::toResponse)
+                .map(this::toResponse)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public ReportResponse getById(Long id) {
         return reportRepository.findById(id)
-                .map(reportMapper::toResponse)
+                .map(this::toResponse)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
     }
 
@@ -82,7 +82,7 @@ public class ReportService {
             }
         }
 
-        return reportMapper.toResponse(report);
+        return toResponse(report);
     }
 
     @Transactional
@@ -98,7 +98,7 @@ public class ReportService {
             publishVerifiedEventIfVerified(report);
         }
 
-        return reportMapper.toResponse(report);
+        return toResponse(report);
     }
 
     @Transactional
@@ -112,7 +112,7 @@ public class ReportService {
 
         report.reject();
 
-        return reportMapper.toResponse(report);
+        return toResponse(report);
     }
 
     private void validateConfirmation(Report report, User user) {
@@ -141,6 +141,26 @@ public class ReportService {
 
     private boolean isPrivileged(User user) {
         return user.getRole() == Role.MODERATOR || user.getRole() == Role.ADMIN;
+    }
+
+    private ReportResponse toResponse(Report report) {
+        ReportResponse response = reportMapper.toResponse(report);
+
+        return new ReportResponse(
+                response.id(),
+                response.author(),
+                response.type(),
+                response.status(),
+                response.lineNumber(),
+                response.stopName(),
+                response.description(),
+                reportConfirmationRepository.countByReportId(report.getId()),
+                REQUIRED_CONFIRMATIONS,
+                response.createdAt(),
+                response.updatedAt(),
+                response.verifiedAt(),
+                response.expiresAt()
+        );
     }
 
     private void publishVerifiedEventIfVerified(Report report) {
