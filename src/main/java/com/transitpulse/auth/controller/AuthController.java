@@ -4,6 +4,7 @@ import com.transitpulse.auth.dto.AuthResponse;
 import com.transitpulse.auth.dto.AuthUserResponse;
 import com.transitpulse.auth.dto.LoginRequest;
 import com.transitpulse.auth.dto.RegisterRequest;
+import com.transitpulse.auth.exception.CurrentUserNotFoundException;
 import com.transitpulse.auth.mapper.AuthMapper;
 import com.transitpulse.auth.security.AuthenticatedUser;
 import com.transitpulse.auth.service.AuthService;
@@ -36,6 +37,10 @@ public class AuthController {
 
     @GetMapping("/me")
     public AuthUserResponse me(@AuthenticationPrincipal AuthenticatedUser currentUser) {
+        if (currentUser == null) {
+            throw new CurrentUserNotFoundException();
+        }
+
         return authMapper.toResponse(currentUser);
     }
 }
