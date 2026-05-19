@@ -42,25 +42,25 @@ public class ReportService {
         Report report = reportMapper.toEntity(request, author);
 
         if (isPrivileged(author)) {
-            markAsVerified(report);
+            report.verify(Instant.now());
         }
 
         Report savedReport = reportRepository.save(report);
         publishVerifiedEventIfVerified(savedReport);
-        return reportMapper.toResponse(savedReport);
+        return toResponse(savedReport);
     }
 
     @Transactional(readOnly = true)
     public List<ReportResponse> getAll() {
         return reportRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(reportMapper::toResponse)
+                .map(this::toResponse)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public ReportResponse getById(Long id) {
         return reportRepository.findById(id)
-                .map(reportMapper::toResponse)
+                .map(this::toResponse)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
     }
 
@@ -77,17 +77,46 @@ public class ReportService {
 
         long confirmationCount = reportConfirmationRepository.countByReportId(report.getId());
         if (confirmationCount >= REQUIRED_CONFIRMATIONS) {
-            markAsVerified(report);
+            if (report.verify(Instant.now())) {
+                publishVerifiedEventIfVerified(report);
+            }
+        }
+
+        return toResponse(report);
+    }
+
+    @Transactional
+    public ReportResponse approve(Long reportId, AuthenticatedUser currentUser) {
+        ensureModeratorOrAdmin(currentUser);
+
+        Report report = reportRepository.findByIdForUpdate(reportId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+
+        validatePending(report, "Only pending reports can be approved");
+
+        if (report.verify(Instant.now())) {
             publishVerifiedEventIfVerified(report);
         }
 
-        return reportMapper.toResponse(report);
+        return toResponse(report);
+    }
+
+    @Transactional
+    public ReportResponse reject(Long reportId, AuthenticatedUser currentUser) {
+        ensureModeratorOrAdmin(currentUser);
+
+        Report report = reportRepository.findByIdForUpdate(reportId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+
+        validatePending(report, "Only pending reports can be rejected");
+
+        report.reject();
+
+        return toResponse(report);
     }
 
     private void validateConfirmation(Report report, User user) {
-        if (report.getStatus() != ReportStatus.PENDING) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pending reports can be confirmed");
-        }
+        validatePending(report, "Only pending reports can be confirmed");
 
         if (report.getAuthor().getId().equals(user.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Report author cannot confirm own report");
@@ -98,17 +127,40 @@ public class ReportService {
         }
     }
 
+    private void validatePending(Report report, String message) {
+        if (!report.isPending()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+        }
+    }
+
+    private void ensureModeratorOrAdmin(AuthenticatedUser currentUser) {
+        if (currentUser.role() != Role.MODERATOR && currentUser.role() != Role.ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Moderator or admin role is required");
+        }
+    }
+
     private boolean isPrivileged(User user) {
         return user.getRole() == Role.MODERATOR || user.getRole() == Role.ADMIN;
     }
 
-    private void markAsVerified(Report report) {
-        if (report.getStatus() == ReportStatus.VERIFIED) {
-            return;
-        }
+    private ReportResponse toResponse(Report report) {
+        ReportResponse response = reportMapper.toResponse(report);
 
-        report.setStatus(ReportStatus.VERIFIED);
-        report.setVerifiedAt(Instant.now());
+        return new ReportResponse(
+                response.id(),
+                response.author(),
+                response.type(),
+                response.status(),
+                response.lineNumber(),
+                response.stopName(),
+                response.description(),
+                reportConfirmationRepository.countByReportId(report.getId()),
+                REQUIRED_CONFIRMATIONS,
+                response.createdAt(),
+                response.updatedAt(),
+                response.verifiedAt(),
+                response.expiresAt()
+        );
     }
 
     private void publishVerifiedEventIfVerified(Report report) {

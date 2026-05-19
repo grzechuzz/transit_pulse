@@ -10,6 +10,8 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring")
 public interface ReportMapper {
 
+    @Mapping(target = "confirmationCount", ignore = true)
+    @Mapping(target = "requiredConfirmations", ignore = true)
     ReportResponse toResponse(Report report);
 
     @Mapping(target = "id", ignore = true)

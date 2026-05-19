@@ -12,6 +12,8 @@ public record ReportResponse(
         String lineNumber,
         String stopName,
         String description,
+        long confirmationCount,
+        int requiredConfirmations,
         Instant createdAt,
         Instant updatedAt,
         Instant verifiedAt,
