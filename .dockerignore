@@ -1,0 +1,10 @@
+.env
+.git
+.github
+.idea
+.codex
+target
+*.iml
+HELP.md
+AGENTS.md
+plan.md
