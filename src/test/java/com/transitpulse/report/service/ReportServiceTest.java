@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.transitpulse.auth.exception.CurrentUserNotFoundException;
 import com.transitpulse.auth.security.AuthenticatedUser;
+import com.transitpulse.common.dto.PageResponse;
 import com.transitpulse.report.dto.CreateReportRequest;
 import com.transitpulse.report.dto.ReportAuthorResponse;
 import com.transitpulse.report.dto.ReportResponse;
@@ -30,6 +32,7 @@ import com.transitpulse.user.entity.User;
 import com.transitpulse.user.repository.UserRepository;
 import java.lang.reflect.Field;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +41,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 @ExtendWith(MockitoExtension.class)
 class ReportServiceTest {
@@ -105,6 +113,31 @@ class ReportServiceTest {
         assertNotNull(report.getVerifiedAt());
         assertEquals(10L, eventCaptor.getValue().reportId());
         assertEquals(1L, eventCaptor.getValue().authorId());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void getAllReturnsPagedReportsWithFilters() {
+        User author = user(1L, Role.USER);
+        Report report = report(author, 10L);
+        Pageable pageable = PageRequest.of(1, 5, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        when(reportRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(report), pageable, 11));
+        stubResponse(report, 2L);
+
+        PageResponse<ReportResponse> response = reportService.getAll(
+                pageable,
+                ReportStatus.PENDING,
+                ReportType.DELAY
+        );
+
+        assertEquals(1, response.page());
+        assertEquals(5, response.size());
+        assertEquals(11L, response.totalElements());
+        assertEquals(3, response.totalPages());
+        assertEquals(1, response.content().size());
+        assertEquals(2L, response.content().getFirst().confirmationCount());
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.transitpulse.notification.service;
 
 import com.transitpulse.notification.entity.Notification;
+import com.transitpulse.common.dto.PageResponse;
 import com.transitpulse.notification.dto.NotificationResponse;
 import com.transitpulse.notification.dto.UnreadCountResponse;
 import com.transitpulse.notification.exception.NotificationNotFoundException;
@@ -16,6 +17,7 @@ import com.transitpulse.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,10 +34,11 @@ public class NotificationService {
     private final NotificationMapper notificationMapper;
 
     @Transactional(readOnly = true)
-    public List<NotificationResponse> getAll(AuthenticatedUser currentUser) {
-        return notificationRepository.findByRecipientIdOrderByCreatedAtDesc(currentUser.id()).stream()
-                .map(notificationMapper::toResponse)
-                .toList();
+    public PageResponse<NotificationResponse> getAll(AuthenticatedUser currentUser, Pageable pageable) {
+        return PageResponse.from(
+                notificationRepository.findByRecipientId(currentUser.id(), pageable)
+                        .map(notificationMapper::toResponse)
+        );
     }
 
     @Transactional(readOnly = true)

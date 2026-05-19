@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.transitpulse.auth.security.AuthenticatedUser;
+import com.transitpulse.common.dto.PageResponse;
 import com.transitpulse.notification.dto.NotificationResponse;
 import com.transitpulse.notification.dto.UnreadCountResponse;
 import com.transitpulse.notification.entity.Notification;
@@ -31,6 +32,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @ExtendWith(MockitoExtension.class)
 class NotificationServiceTest {
@@ -58,6 +63,30 @@ class NotificationServiceTest {
         UnreadCountResponse response = notificationService.getUnreadCount(AuthenticatedUser.from(user));
 
         assertEquals(4L, response.count());
+    }
+
+    @Test
+    void getAllReturnsPagedNotificationsForCurrentUser() {
+        User user = user(1L);
+        Report report = report(user, 10L);
+        Notification notification = notification(user, report, 20L);
+        NotificationResponse mapped = response(notification, false);
+        Pageable pageable = PageRequest.of(1, 5, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        when(notificationRepository.findByRecipientId(1L, pageable))
+                .thenReturn(new PageImpl<>(List.of(notification), pageable, 7));
+        when(notificationMapper.toResponse(notification)).thenReturn(mapped);
+
+        PageResponse<NotificationResponse> response = notificationService.getAll(
+                AuthenticatedUser.from(user),
+                pageable
+        );
+
+        assertEquals(1, response.page());
+        assertEquals(5, response.size());
+        assertEquals(6L, response.totalElements());
+        assertEquals(2, response.totalPages());
+        assertEquals(mapped, response.content().getFirst());
     }
 
     @Test

@@ -2,11 +2,13 @@ package com.transitpulse.report.service;
 
 import com.transitpulse.auth.security.AuthenticatedUser;
 import com.transitpulse.auth.exception.CurrentUserNotFoundException;
+import com.transitpulse.common.dto.PageResponse;
 import com.transitpulse.report.dto.CreateReportRequest;
 import com.transitpulse.report.dto.ReportResponse;
 import com.transitpulse.report.entity.Report;
 import com.transitpulse.report.entity.ReportConfirmation;
 import com.transitpulse.report.entity.ReportStatus;
+import com.transitpulse.report.entity.ReportType;
 import com.transitpulse.report.event.ReportVerifiedEvent;
 import com.transitpulse.report.exception.ModeratorRoleRequiredException;
 import com.transitpulse.report.exception.ReportAlreadyConfirmedException;
@@ -20,9 +22,10 @@ import com.transitpulse.user.entity.Role;
 import com.transitpulse.user.entity.User;
 import com.transitpulse.user.repository.UserRepository;
 import java.time.Instant;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,10 +58,11 @@ public class ReportService {
     }
 
     @Transactional(readOnly = true)
-    public List<ReportResponse> getAll() {
-        return reportRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::toResponse)
-                .toList();
+    public PageResponse<ReportResponse> getAll(Pageable pageable, ReportStatus status, ReportType type) {
+        return PageResponse.from(
+                reportRepository.findAll(buildSpecification(status, type), pageable)
+                        .map(this::toResponse)
+        );
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +149,22 @@ public class ReportService {
 
     private boolean isPrivileged(User user) {
         return user.getRole() == Role.MODERATOR || user.getRole() == Role.ADMIN;
+    }
+
+    private Specification<Report> buildSpecification(ReportStatus status, ReportType type) {
+        Specification<Report> specification = (root, query, criteriaBuilder) -> criteriaBuilder.conjunction();
+
+        if (status != null) {
+            specification = specification.and((root, query, criteriaBuilder) ->
+                    criteriaBuilder.equal(root.get("status"), status));
+        }
+
+        if (type != null) {
+            specification = specification.and((root, query, criteriaBuilder) ->
+                    criteriaBuilder.equal(root.get("type"), type));
+        }
+
+        return specification;
     }
 
     private ReportResponse toResponse(Report report) {
