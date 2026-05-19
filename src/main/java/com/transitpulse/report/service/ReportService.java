@@ -1,12 +1,20 @@
 package com.transitpulse.report.service;
 
 import com.transitpulse.auth.security.AuthenticatedUser;
+import com.transitpulse.auth.exception.CurrentUserNotFoundException;
+import com.transitpulse.common.dto.PageResponse;
 import com.transitpulse.report.dto.CreateReportRequest;
 import com.transitpulse.report.dto.ReportResponse;
 import com.transitpulse.report.entity.Report;
 import com.transitpulse.report.entity.ReportConfirmation;
 import com.transitpulse.report.entity.ReportStatus;
+import com.transitpulse.report.entity.ReportType;
 import com.transitpulse.report.event.ReportVerifiedEvent;
+import com.transitpulse.report.exception.ModeratorRoleRequiredException;
+import com.transitpulse.report.exception.ReportAlreadyConfirmedException;
+import com.transitpulse.report.exception.ReportAuthorCannotConfirmException;
+import com.transitpulse.report.exception.ReportNotFoundException;
+import com.transitpulse.report.exception.ReportNotPendingException;
 import com.transitpulse.report.mapper.ReportMapper;
 import com.transitpulse.report.repository.ReportConfirmationRepository;
 import com.transitpulse.report.repository.ReportRepository;
@@ -14,13 +22,12 @@ import com.transitpulse.user.entity.Role;
 import com.transitpulse.user.entity.User;
 import com.transitpulse.user.repository.UserRepository;
 import java.time.Instant;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -37,7 +44,7 @@ public class ReportService {
     @Transactional
     public ReportResponse create(AuthenticatedUser currentUser, CreateReportRequest request) {
         User author = userRepository.findById(currentUser.id())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current user not found"));
+                .orElseThrow(CurrentUserNotFoundException::new);
 
         Report report = reportMapper.toEntity(request, author);
 
@@ -51,25 +58,26 @@ public class ReportService {
     }
 
     @Transactional(readOnly = true)
-    public List<ReportResponse> getAll() {
-        return reportRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::toResponse)
-                .toList();
+    public PageResponse<ReportResponse> getAll(Pageable pageable, ReportStatus status, ReportType type) {
+        return PageResponse.from(
+                reportRepository.findAll(buildSpecification(status, type), pageable)
+                        .map(this::toResponse)
+        );
     }
 
     @Transactional(readOnly = true)
     public ReportResponse getById(Long id) {
         return reportRepository.findById(id)
                 .map(this::toResponse)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+                .orElseThrow(ReportNotFoundException::new);
     }
 
     @Transactional
     public ReportResponse confirm(Long reportId, AuthenticatedUser currentUser) {
         Report report = reportRepository.findByIdForUpdate(reportId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+                .orElseThrow(ReportNotFoundException::new);
         User user = userRepository.findById(currentUser.id())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current user not found"));
+                .orElseThrow(CurrentUserNotFoundException::new);
 
         validateConfirmation(report, user);
 
@@ -90,9 +98,9 @@ public class ReportService {
         ensureModeratorOrAdmin(currentUser);
 
         Report report = reportRepository.findByIdForUpdate(reportId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+                .orElseThrow(ReportNotFoundException::new);
 
-        validatePending(report, "Only pending reports can be approved");
+        validatePending(report, "approved");
 
         if (report.verify(Instant.now())) {
             publishVerifiedEventIfVerified(report);
@@ -106,9 +114,9 @@ public class ReportService {
         ensureModeratorOrAdmin(currentUser);
 
         Report report = reportRepository.findByIdForUpdate(reportId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
+                .orElseThrow(ReportNotFoundException::new);
 
-        validatePending(report, "Only pending reports can be rejected");
+        validatePending(report, "rejected");
 
         report.reject();
 
@@ -116,31 +124,47 @@ public class ReportService {
     }
 
     private void validateConfirmation(Report report, User user) {
-        validatePending(report, "Only pending reports can be confirmed");
+        validatePending(report, "confirmed");
 
         if (report.getAuthor().getId().equals(user.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Report author cannot confirm own report");
+            throw new ReportAuthorCannotConfirmException();
         }
 
         if (reportConfirmationRepository.existsByReportIdAndUserId(report.getId(), user.getId())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Report already confirmed by this user");
+            throw new ReportAlreadyConfirmedException();
         }
     }
 
-    private void validatePending(Report report, String message) {
+    private void validatePending(Report report, String action) {
         if (!report.isPending()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+            throw new ReportNotPendingException(action);
         }
     }
 
     private void ensureModeratorOrAdmin(AuthenticatedUser currentUser) {
         if (currentUser.role() != Role.MODERATOR && currentUser.role() != Role.ADMIN) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Moderator or admin role is required");
+            throw new ModeratorRoleRequiredException();
         }
     }
 
     private boolean isPrivileged(User user) {
         return user.getRole() == Role.MODERATOR || user.getRole() == Role.ADMIN;
+    }
+
+    private Specification<Report> buildSpecification(ReportStatus status, ReportType type) {
+        Specification<Report> specification = (root, query, criteriaBuilder) -> criteriaBuilder.conjunction();
+
+        if (status != null) {
+            specification = specification.and((root, query, criteriaBuilder) ->
+                    criteriaBuilder.equal(root.get("status"), status));
+        }
+
+        if (type != null) {
+            specification = specification.and((root, query, criteriaBuilder) ->
+                    criteriaBuilder.equal(root.get("type"), type));
+        }
+
+        return specification;
     }
 
     private ReportResponse toResponse(Report report) {
