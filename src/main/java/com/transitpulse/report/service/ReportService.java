@@ -66,7 +66,7 @@ public class ReportService {
 
     @Transactional
     public ReportResponse confirm(Long reportId, AuthenticatedUser currentUser) {
-        Report report = reportRepository.findById(reportId)
+        Report report = reportRepository.findByIdForUpdate(reportId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found"));
         User user = userRepository.findById(currentUser.id())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Current user not found"));
