@@ -41,7 +41,6 @@ public class Report {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    @Setter
     private ReportStatus status = ReportStatus.PENDING;
 
     @Column(name = "line_number")
@@ -63,7 +62,6 @@ public class Report {
     private Instant updatedAt;
 
     @Column(name = "verified_at")
-    @Setter
     private Instant verifiedAt;
 
     @Column(name = "expires_at")
@@ -84,6 +82,24 @@ public class Report {
         this.stopName = stopName;
         this.description = description;
         this.expiresAt = expiresAt;
+    }
+
+    public boolean verify(Instant verifiedAt) {
+        if (status == ReportStatus.VERIFIED) {
+            return false;
+        }
+
+        status = ReportStatus.VERIFIED;
+        this.verifiedAt = verifiedAt;
+        return true;
+    }
+
+    public void reject() {
+        status = ReportStatus.REJECTED;
+    }
+
+    public boolean isPending() {
+        return status == ReportStatus.PENDING;
     }
 
     @PrePersist
